@@ -108,68 +108,83 @@ Public Class Main
 
     Private Sub CopyFilesFromUSBWithProgress(usbPath As String, destDir As String)
         Try
-            Dim fileCount As Integer = 0
-            Dim totalSize As Long = 0
-
-            ' Lade alle Dateien im Verzeichnis des USB-Sticks
-            Dim files As String() = Directory.GetFiles(usbPath)
-            Dim totalFiles As Integer = files.Length
-
-            ' Setze den Fortschrittsbalken auf die Anzahl der Dateien
-            If ProgressBar1.InvokeRequired Then
-                ProgressBar1.Invoke(Sub()
-                                        ProgressBar1.Visible = True
-                                        ProgressBar1.Minimum = 0
-                                        ProgressBar1.Maximum = totalFiles
-                                        ProgressBar1.Value = 0
-                                    End Sub)
-            Else
-                ProgressBar1.Minimum = 0
-                ProgressBar1.Maximum = totalFiles
-                ProgressBar1.Value = 0
-            End If
-
-            ' Kopiere jede Datei und aktualisiere den Fortschrittsbalken
-            For Each file As String In files
-                Dim fileName As String = Path.GetFileName(file)
-                Dim destFile As String = Path.Combine(destDir, fileName)
-
-                ' Kopiere die Datei und überschreibe, wenn sie bereits existiert
-                System.IO.File.Copy(file, destFile, True)
-
-                ' Statistik sammeln
-                fileCount += 1
-                totalSize += New FileInfo(file).Length
-
-                ' Fortschrittsbalken im UI-Thread aktualisieren
-                If ProgressBar1.InvokeRequired Then
-                    ProgressBar1.Invoke(Sub()
-                                            ProgressBar1.Value = fileCount
-                                        End Sub)
-                Else
-                    ProgressBar1.Value = fileCount
-                End If
-            Next
-
-            ' Ausgabe der Anzahl kopierter Dateien und der Gesamtgröße in GB
-            MessageBox.Show("Anzahl kopierter Dateien: " & fileCount & vbCrLf &
-                        "Gesamtgröße: " & (totalSize / (1024 * 1024 * 1024)).ToString("F2") & " GB",
-                        "Kopieren abgeschlossen")
 
 
-            If ProgressBar1.InvokeRequired Then
-                ProgressBar1.Invoke(Sub()
-                                        ProgressBar1.Visible = False
-                                    End Sub)
-            Else
-                ProgressBar1.Visible = False
-            End If
+            ' Starte den Kopiervorgang in einem separaten Task, um das UI nicht zu blockieren
+            Task.Run(Sub()
+                         ' Zähle die Anzahl der Dateien und die Gesamtgröße
+                         Dim totalFiles As Integer = 0
+                         Dim totalSize As Long = 0
+
+                         ' Rekursives Kopieren aller Dateien und Verzeichnisse
+                         CopyDirectoryRecursively(usbPath, destDir, totalFiles, totalSize)
+
+                         ' Ausgabe der Anzahl kopierter Dateien und der Gesamtgröße in GB
+                         Invoke(Sub()
+                                    MessageBox.Show("Anzahl kopierter Dateien: " & totalFiles & vbCrLf &
+                                                    "Gesamtgröße: " & (totalSize / (1024 * 1024 * 1024)).ToString("F2") & " GB",
+                                                    "Kopieren abgeschlossen")
+                                End Sub)
+                     End Sub)
 
         Catch ex As Exception
             MessageBox.Show("Fehler beim Kopieren: " & ex.Message, "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
-    End Sub
 
+    End Sub
+    Private Sub CopyDirectoryRecursively(sourceDir As String, destDir As String, ByRef fileCount As Integer, ByRef totalSize As Long)
+        Try
+            ' Erstelle das Zielverzeichnis, wenn es nicht existiert
+            If Not Directory.Exists(destDir) Then
+                Directory.CreateDirectory(destDir)
+            End If
+
+            ' Kopiere alle Dateien im aktuellen Verzeichnis
+            For Each file As String In Directory.GetFiles(sourceDir)
+                Try
+                    Dim destFile As String = Path.Combine(destDir, Path.GetFileName(file))
+
+                    ' Kopiere die Datei und überschreibe, wenn sie bereits existiert
+                    System.IO.File.Copy(file, destFile, True)
+
+                    ' Statistik sammeln
+                    fileCount += 1
+                    totalSize += New FileInfo(file).Length
+
+                Catch ex As UnauthorizedAccessException
+                    ' Bei Zugriffsverweigerung die Datei überspringen
+                    Continue For
+                Catch ex As Exception
+                    ' Bei anderen Fehlern ggf. informieren und fortfahren
+                    MessageBox.Show("Fehler beim Kopieren der Datei: " & file & vbCrLf & ex.Message, "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                    Continue For
+                End Try
+            Next
+
+            ' Rekursion für alle Unterverzeichnisse
+            For Each dir As String In Directory.GetDirectories(sourceDir)
+                Try
+                    Dim destSubDir As String = Path.Combine(destDir, Path.GetFileName(dir))
+                    CopyDirectoryRecursively(dir, destSubDir, fileCount, totalSize)
+
+                Catch ex As UnauthorizedAccessException
+                    ' Bei Zugriffsverweigerung das Verzeichnis überspringen
+                    Continue For
+                Catch ex As Exception
+                    ' Bei anderen Fehlern ggf. informieren und fortfahren
+                    MessageBox.Show("Fehler beim Zugriff auf das Verzeichnis: " & dir & vbCrLf & ex.Message, "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                    Continue For
+                End Try
+            Next
+
+        Catch ex As UnauthorizedAccessException
+            ' Bei Zugriffsverweigerung das Verzeichnis überspringen
+            Return
+        Catch ex As Exception
+            ' Bei anderen Fehlern ggf. informieren und fortfahren
+            MessageBox.Show("Fehler beim Zugriff auf das Verzeichnis: " & sourceDir & vbCrLf & ex.Message, "Fehler", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
 
     Private Sub btnReset_Click(sender As Object, e As EventArgs) Handles btnReset.Click
         bolCheck = False
